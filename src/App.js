@@ -81,7 +81,7 @@ export default function App() {
   const [shutterSpeed, setShutterSpeed] = useState(SHUTTER_SPEEDS[7].value);
   const [iso, setIso] = useState(ISO_STOPS[3]);
   const [lux, setLux] = useState(0);
-  const [isCameraOn, setIsCameraOn] = useState(false);
+  const [isCameraOn, setIsCameraOn].useState(false);
   const [cameraError, setCameraError] = useState(null);
   
   // State for Gemini feature
@@ -241,8 +241,6 @@ export default function App() {
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap');
         body { font-family: 'Inter', sans-serif; overscroll-behavior: none; }
-        .liquid-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 28px; height: 28px; background: #ffffff; border-radius: 50%; cursor: pointer; border: 4px solid rgba(0,0,0,0.2); box-shadow: 0 0 10px rgba(255,255,255,0.5), 0 2px 4px rgba(0,0,0,0.2); transition: transform 0.1s ease-in-out; }
-        .liquid-slider:active::-webkit-slider-thumb { transform: scale(1.1); }
       `}</style>
       
       <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover bg-black -z-10"></video>
@@ -250,10 +248,11 @@ export default function App() {
       
       {isCameraOn && <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 border-2 border-white/50 bg-white/10 rounded-lg pointer-events-none"></div>}
 
-      <div className="min-h-screen w-full flex items-center justify-center p-4 bg-black/30 font-sans text-white">
+      <div className="min-h-screen w-full flex flex-col items-center justify-center p-4 text-white">
+        <h1 className="text-5xl font-bold text-white mb-8 text-shadow-lg">Liquid Glass Camera Controls</h1>
         <div className="w-full max-w-md mx-auto flex flex-col gap-6">
           
-          <div className="relative bg-white/10 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl shadow-black/20 p-6 md:p-8">
+          <div className="relative glass-container p-6 md:p-8">
             <div className="absolute top-4 left-6 text-xs font-bold uppercase text-white/50 tracking-widest">Exposure Meter</div>
             <div className="flex flex-col space-y-6 pt-8">
               <LiquidSlider label="Aperture" icon={<ApertureIcon />} value={aperture} onChange={setAperture} displayValues={APERTURE_STOPS}/>
@@ -262,7 +261,7 @@ export default function App() {
             </div>
           </div>
 
-          <div className="relative bg-black/20 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl shadow-black/20 p-6">
+          <div className="relative glass-container p-6">
              <div className="flex flex-col items-center justify-center space-y-4">
                 <div className="text-center h-12">
                   <span className={`text-lg font-bold ${exposureIndicator.color} transition-colors duration-300`}>{exposureIndicator.label}</span>
@@ -276,9 +275,9 @@ export default function App() {
           </div>
           
           {/* Gemini AI Suggestion Panel */}
-          <div className="bg-black/20 backdrop-blur-lg border border-white/10 rounded-3xl p-4 flex flex-col items-center min-h-[100px] justify-center">
+          <div className="glass-container p-4 flex flex-col items-center min-h-[100px] justify-center">
             {!geminiSuggestion && !isGenerating && !geminiError && (
-                 <button onClick={getAiSuggestion} disabled={!isCameraOn || isGenerating} className="bg-purple-500/50 hover:bg-purple-500/70 text-white font-bold py-3 px-6 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out w-full max-w-xs shadow-lg backdrop-blur-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                 <button onClick={getAiSuggestion} disabled={!isCameraOn || isGenerating} className="action-button bg-purple-500/50 hover:bg-purple-500/70 text-white font-bold py-3 px-6 rounded-full flex items-center justify-center w-full max-w-xs shadow-lg disabled:opacity-50 disabled:cursor-not-allowed">
                     <SparkleIcon />
                     ✨ Suggest a Shot
                 </button>
@@ -293,14 +292,14 @@ export default function App() {
             )}
           </div>
 
-          <div className="bg-black/20 backdrop-blur-lg border border-white/10 rounded-3xl p-4 flex flex-col items-center">
+          <div className="glass-container p-4 flex flex-col items-center">
             {!isCameraOn ? (
-              <button onClick={startCamera} className="bg-green-500/50 hover:bg-green-500/70 text-white font-bold py-3 px-6 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out w-full max-w-xs shadow-lg backdrop-blur-sm">
+              <button onClick={startCamera} className="action-button bg-green-500/50 hover:bg-green-500/70 text-white font-bold py-3 px-6 rounded-full flex items-center justify-center w-full max-w-xs shadow-lg">
                 <CameraIcon />
                 Start Live Metering
               </button>
             ) : (
-               <button onClick={stopCamera} className="bg-red-500/50 hover:bg-red-500/70 text-white font-bold py-3 px-6 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out w-full max-w-xs shadow-lg backdrop-blur-sm">
+               <button onClick={stopCamera} className="action-button bg-red-500/50 hover:bg-red-500/70 text-white font-bold py-3 px-6 rounded-full flex items-center justify-center w-full max-w-xs shadow-lg">
                 Stop Metering
               </button>
             )}
