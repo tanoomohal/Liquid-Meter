@@ -25,6 +25,11 @@ const CameraIcon = () => (
         <circle cx="12" cy="13" r="3"></circle>
     </svg>
 );
+const SparkleIcon = () => (
+    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-5 h-5 mr-2">
+        <path d="M12 2L9.5 9.5 2 12l7.5 2.5L12 22l2.5-7.5L22 12l-7.5-2.5z"></path>
+    </svg>
+);
 
 
 // --== Data Constants ==--
@@ -72,22 +77,26 @@ const LiquidSlider = ({ label, icon, value, onChange, displayValues }) => {
 
 // --== Main App Component ==--
 export default function App() {
-  const [aperture, setAperture] = useState(APERTURE_STOPS[4]); // f/5.6
-  const [shutterSpeed, setShutterSpeed] = useState(SHUTTER_SPEEDS[7].value); // 1/60
-  const [iso, setIso] = useState(ISO_STOPS[3]); // 400
-  const [lux, setLux] = useState(0); // Live brightness from camera
+  const [aperture, setAperture] = useState(APERTURE_STOPS[4]);
+  const [shutterSpeed, setShutterSpeed] = useState(SHUTTER_SPEEDS[7].value);
+  const [iso, setIso] = useState(ISO_STOPS[3]);
+  const [lux, setLux] = useState(0);
   const [isCameraOn, setIsCameraOn] = useState(false);
   const [cameraError, setCameraError] = useState(null);
+  
+  // State for Gemini feature
+  const [geminiSuggestion, setGeminiSuggestion] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [geminiError, setGeminiError] = useState('');
+
 
   const videoRef = useRef(null);
   const canvasRef = useRef(null);
   const animationFrameId = useRef(null);
 
-  // Function to start the camera
   const startCamera = async () => {
     if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
       try {
-        // Prefer the back camera
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
         if (videoRef.current) {
           videoRef.current.srcObject = stream;
@@ -105,56 +114,37 @@ export default function App() {
     }
   };
   
-  // Function to stop the camera
   const stopCamera = useCallback(() => {
     if (videoRef.current && videoRef.current.srcObject) {
       videoRef.current.srcObject.getTracks().forEach(track => track.stop());
       videoRef.current.srcObject = null;
     }
-    if(animationFrameId.current) {
-      cancelAnimationFrame(animationFrameId.current);
-    }
+    if(animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
     setIsCameraOn(false);
   }, []);
 
-  // Light analysis loop
   const analyzeLight = useCallback(() => {
-    if (!isCameraOn || !videoRef.current || !canvasRef.current) return;
+    if (!isCameraOn || !videoRef.current || !canvasRef.current || videoRef.current.readyState < 2) {
+        if(isCameraOn) animationFrameId.current = requestAnimationFrame(analyzeLight);
+        return;
+    };
 
     const video = videoRef.current;
-    if (video.readyState < 2) { // Wait until video is ready
-      animationFrameId.current = requestAnimationFrame(analyzeLight);
-      return;
-    }
-
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    
-    // The size of the area to sample in the center of the video
     const sampleSize = 64;
     const sx = (video.videoWidth - sampleSize) / 2;
     const sy = (video.videoHeight - sampleSize) / 2;
-    
-    // Set canvas dimensions to match video to avoid scaling issues
     canvas.width = video.videoWidth;
     canvas.height = video.videoHeight;
-
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
 
     const imageData = ctx.getImageData(sx, sy, sampleSize, sampleSize).data;
     let totalBrightness = 0;
     for (let i = 0; i < imageData.length; i += 4) {
-      const r = imageData[i];
-      const g = imageData[i + 1];
-      const b = imageData[i + 2];
-      // Using luminosity formula for more accurate brightness
-      const brightness = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-      totalBrightness += brightness;
+      totalBrightness += 0.2126 * imageData[i] + 0.7152 * imageData[i+1] + 0.0722 * imageData[i+2];
     }
     const avgBrightness = totalBrightness / (imageData.length / 4);
-    
-    // This is a simplified, non-linear approximation to convert 0-255 brightness to a Lux value.
-    // A real-world application would require a more complex calibration.
     const estimatedLux = Math.pow(avgBrightness / 255, 2) * 10000 + 1;
     setLux(estimatedLux);
 
@@ -165,70 +155,103 @@ export default function App() {
     if (isCameraOn) {
       animationFrameId.current = requestAnimationFrame(analyzeLight);
     } else {
-      if (animationFrameId.current) {
-        cancelAnimationFrame(animationFrameId.current);
-      }
+      if (animationFrameId.current) cancelAnimationFrame(animationFrameId.current);
     }
-    // Cleanup function to stop camera when component unmounts
-    return () => {
-        stopCamera();
-    };
+    return () => stopCamera();
   }, [isCameraOn, analyzeLight, stopCamera]);
 
+  // Gemini API Call
+  const getAiSuggestion = async () => {
+    if (!videoRef.current || !canvasRef.current || videoRef.current.readyState < 2) {
+        setGeminiError("Camera not ready. Please try again.");
+        return;
+    }
 
-  // Calculate Exposure Value (EV)
-  const exposureValue = useMemo(() => {
-    const ev100 = Math.log2((aperture * aperture) / shutterSpeed);
-    return ev100 - Math.log2(iso / 100);
-  }, [aperture, shutterSpeed, iso]);
+    setIsGenerating(true);
+    setGeminiSuggestion('');
+    setGeminiError('');
 
-  // Calculate Scene EV based on live light
-  const sceneEv = useMemo(() => {
-    if (lux <= 0) return -Infinity;
-    return Math.log2(lux / 2.5);
-  }, [lux]);
-  
+    try {
+        const video = videoRef.current;
+        const canvas = canvasRef.current;
+        const ctx = canvas.getContext('2d');
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        
+        const dataUrl = canvas.toDataURL('image/jpeg');
+        const base64ImageData = dataUrl.split(',')[1];
+
+        const prompt = "You are a creative photography assistant. Analyze this scene and provide a concise, actionable suggestion for a compelling photograph. Focus on composition, mood, and potential camera settings. Keep your response under 50 words.";
+
+        const payload = {
+            contents: [{
+                role: "user",
+                parts: [
+                    { text: prompt },
+                    { inlineData: { mimeType: "image/jpeg", data: base64ImageData } }
+                ]
+            }],
+        };
+
+        const apiKey = ""; // API key will be injected by the environment
+        const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+        const response = await fetch(apiUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+
+        if (!response.ok) {
+            throw new Error(`API request failed with status ${response.status}`);
+        }
+
+        const result = await response.json();
+        
+        if (result.candidates && result.candidates.length > 0) {
+            const text = result.candidates[0].content.parts[0].text;
+            setGeminiSuggestion(text);
+        } else {
+            throw new Error("No suggestion received from the API.");
+        }
+
+    } catch (error) {
+        console.error("Gemini API error:", error);
+        setGeminiError("Could not get suggestion. Please try again.");
+    } finally {
+        setIsGenerating(false);
+    }
+  };
+
+  const exposureValue = useMemo(() => Math.log2((aperture * aperture) / shutterSpeed) - Math.log2(iso / 100), [aperture, shutterSpeed, iso]);
+  const sceneEv = useMemo(() => lux <= 0 ? -Infinity : Math.log2(lux / 2.5), [lux]);
   const exposureDifference = useMemo(() => exposureValue - sceneEv, [exposureValue, sceneEv]);
 
-  const getExposureIndicator = () => {
+  const exposureIndicator = useMemo(() => {
     if (!isCameraOn || sceneEv === -Infinity) return { label: "Metering Paused", color: "text-white/70", position: 50 };
     const diff = exposureDifference;
     if (diff > 0.3) return { label: "Overexposed", color: "text-yellow-300", position: clamp(50 + diff * 15, 50, 100) };
     if (diff < -0.3) return { label: "Underexposed", color: "text-blue-300", position: clamp(50 + diff * 15, 0, 50) };
     return { label: "Correct Exposure", color: "text-green-300", position: 50 };
-  };
-
-  const exposureIndicator = getExposureIndicator();
+  }, [isCameraOn, sceneEv, exposureDifference]);
 
   return (
     <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;900&display=swap');
         body { font-family: 'Inter', sans-serif; overscroll-behavior: none; }
-        .liquid-slider::-webkit-slider-thumb {
-          -webkit-appearance: none; appearance: none; width: 28px; height: 28px;
-          background: #ffffff; border-radius: 50%; cursor: pointer;
-          border: 4px solid rgba(0,0,0,0.2);
-          box-shadow: 0 0 10px rgba(255,255,255,0.5), 0 2px 4px rgba(0,0,0,0.2);
-          transition: transform 0.1s ease-in-out;
-        }
-        .liquid-slider::-moz-range-thumb {
-          width: 20px; height: 20px; background: #ffffff; border-radius: 50%;
-          cursor: pointer; border: 4px solid rgba(0,0,0,0.2);
-          box-shadow: 0 0 10px rgba(255,255,255,0.5), 0 2px 4px rgba(0,0,0,0.2);
-        }
+        .liquid-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 28px; height: 28px; background: #ffffff; border-radius: 50%; cursor: pointer; border: 4px solid rgba(0,0,0,0.2); box-shadow: 0 0 10px rgba(255,255,255,0.5), 0 2px 4px rgba(0,0,0,0.2); transition: transform 0.1s ease-in-out; }
         .liquid-slider:active::-webkit-slider-thumb { transform: scale(1.1); }
       `}</style>
       
-      {/* Live Camera Background */}
       <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover bg-black -z-10"></video>
       <canvas ref={canvasRef} className="hidden"></canvas>
       
-      {/* Metering Reticle */}
       {isCameraOn && <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-16 h-16 border-2 border-white/50 bg-white/10 rounded-lg pointer-events-none"></div>}
 
       <div className="min-h-screen w-full flex items-center justify-center p-4 bg-black/30 font-sans text-white">
-        <div className="w-full max-w-md mx-auto flex flex-col gap-8">
+        <div className="w-full max-w-md mx-auto flex flex-col gap-6">
           
           <div className="relative bg-white/10 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl shadow-black/20 p-6 md:p-8">
             <div className="absolute top-4 left-6 text-xs font-bold uppercase text-white/50 tracking-widest">Exposure Meter</div>
@@ -252,6 +275,24 @@ export default function App() {
              </div>
           </div>
           
+          {/* Gemini AI Suggestion Panel */}
+          <div className="bg-black/20 backdrop-blur-lg border border-white/10 rounded-3xl p-4 flex flex-col items-center min-h-[100px] justify-center">
+            {!geminiSuggestion && !isGenerating && !geminiError && (
+                 <button onClick={getAiSuggestion} disabled={!isCameraOn || isGenerating} className="bg-purple-500/50 hover:bg-purple-500/70 text-white font-bold py-3 px-6 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out w-full max-w-xs shadow-lg backdrop-blur-sm disabled:opacity-50 disabled:cursor-not-allowed">
+                    <SparkleIcon />
+                    ✨ Suggest a Shot
+                </button>
+            )}
+            {isGenerating && <div className="text-white/80">Generating suggestion...</div>}
+            {geminiError && <div className="text-red-400 text-center text-sm">{geminiError}</div>}
+            {geminiSuggestion && (
+                <div className="text-center">
+                    <p className="text-white/90">{geminiSuggestion}</p>
+                    <button onClick={() => setGeminiSuggestion('')} className="mt-3 text-xs bg-white/10 hover:bg-white/20 px-3 py-1 rounded-full">Clear</button>
+                </div>
+            )}
+          </div>
+
           <div className="bg-black/20 backdrop-blur-lg border border-white/10 rounded-3xl p-4 flex flex-col items-center">
             {!isCameraOn ? (
               <button onClick={startCamera} className="bg-green-500/50 hover:bg-green-500/70 text-white font-bold py-3 px-6 rounded-full flex items-center justify-center transition-all duration-300 ease-in-out w-full max-w-xs shadow-lg backdrop-blur-sm">
