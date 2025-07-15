@@ -81,7 +81,7 @@ export default function App() {
   const [shutterSpeed, setShutterSpeed] = useState(SHUTTER_SPEEDS[7].value);
   const [iso, setIso] = useState(ISO_STOPS[3]);
   const [lux, setLux] = useState(0);
-  const [isCameraOn, setIsCameraOn].useState(false);
+  const [isCameraOn, setIsCameraOn] = useState(false);
   const [cameraError, setCameraError] = useState(null);
   
   // State for Gemini feature
